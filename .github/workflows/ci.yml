@@ -2,52 +2,73 @@ name: CI Pipeline
 
 on:
   push:
-    branches: [develop]
+    branches: ["**"]
   pull_request:
-    branches: [develop]
+    branches: [develop, main]
 
 jobs:
-  lint-html:
+
+  code-quality:
+    name: HTML & CSS Linting
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
 
-      - run: npm install
-      - run: npx htmlhint src
+      - name: Install Dependencies
+        run: npm install
 
-  lint-css:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+      - name: Run HTMLHint
+        run: npx htmlhint "src/**/*.html"
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - run: npm install
-      - run: npx stylelint styles/style.css
+      - name: Run Stylelint
+        run: npx stylelint "styles/**/*.css"
 
   build:
+    name: Build with Parcel
     runs-on: ubuntu-latest
-    needs: [lint-html, lint-css]
+    needs: code-quality
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
 
-      - run: npm install
-      - run: npm run build
+      - name: Install Dependencies
+        run: npm install
 
-  docker-build:
+      - name: Build with Parcel
+        run: npx parcel build src/index.html src/notices.html src/exams.html src/admissions.html src/contact.html --dist-dir dist --no-optimize
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  docker:
+    name: Build & Push Docker Image
     runs-on: ubuntu-latest
     needs: build
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
     steps:
       - uses: actions/checkout@v4
 
-      - run: docker build -t uni-notice-board .
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build Docker Image
+        run: docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/uni-notice-board:latest .
+
+      - name: Push Docker Image
+        run: docker push ${{ secrets.DOCKERHUB_USERNAME }}/uni-notice-board:latest
